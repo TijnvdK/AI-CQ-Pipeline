@@ -1,36 +1,36 @@
-name: Run Lambda Tests
+name: Run Pipeline Task Tests
 on:
   pull_request:
     paths:
-      - "lambdas/**"
+      - "pipeline/tasks/**"
   push:
     branches:
       - main
     paths:
-      - "lambdas/**"
+      - "pipeline/tasks/**"
 jobs:
   retrieve:
-    name: Retrieve Lambdas and their tests
+    name: Retrieve Pipeline Tasks and their tests
     runs-on: ubuntu-latest
     outputs:
-      lambdas: ${{ steps.retrieve.outputs.lambdas }}
+      tasks: ${{ steps.retrieve.outputs.tasks }}
     steps:
       - uses: actions/checkout@v6
-      - name: Retrieve Lambdas and their tests
+      - name: Retrieve Pipeline Tasks and their tests
         id: retrieve
         run: |
-          lambdas=$(find lambdas -mindepth 1 -maxdepth 1 -type d \
+          tasks=$(find pipeline/tasks -mindepth 1 -maxdepth 1 -type d \
             -exec test -d {}/tests \; -print | jq -R -s -c 'split("\n") | map(select(. != ""))')
-          echo "lambdas=$lambdas" >> $GITHUB_OUTPUT
+          echo "tasks=$tasks" >> $GITHUB_OUTPUT
   test:
-    name: Run Tests of ${{ matrix.lambda }}
+    name: Run Tests of ${{ matrix.task }}
     needs: retrieve
-    if: ${{ needs.retrieve.outputs.lambdas != '[]' }}
+    if: ${{ needs.retrieve.outputs.tasks != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        lambda: ${{ fromJson(needs.retrieve.outputs.lambdas) }}
+        task: ${{ fromJson(needs.retrieve.outputs.tasks) }}
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -39,17 +39,17 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: |
-            ${{ matrix.lambda }}/requirements.txt
-            ${{ matrix.lambda }}/requirements-dev.txt
+            ${{ matrix.task }}/requirements.txt
+            ${{ matrix.task }}/requirements-dev.txt
       - name: Install dependencies
-        working-directory: ${{ matrix.lambda }}
+        working-directory: ${{ matrix.task }}
         run: |
           python -m pip install --upgrade pip
           [ -f requirements.txt ] && pip install -r requirements.txt || true
           [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || true
           pip install pytest pytest-cov
       - name: Run tests
-        working-directory: ${{ matrix.lambda }}
+        working-directory: ${{ matrix.task }}
         env:
           PYTHONPATH: src
         run: |
@@ -58,5 +58,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ strategy.job-index }}
-          path: ${{ matrix.lambda }}/coverage.xml
+          path: ${{ matrix.task }}/coverage.xml
           retention-days: 7
