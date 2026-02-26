@@ -20,3 +20,5 @@ pip install ansible pre-commit
 ```bash
 pre-commit install
 ```
+
+4. Copy workflow file: "run-correctness-tests" to where you want to run the pipeline
