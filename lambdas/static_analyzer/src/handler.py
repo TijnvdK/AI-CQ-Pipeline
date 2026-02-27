@@ -1,6 +1,7 @@
 import ast
 import sys
 import json
+import subprocess
 
 
 def load_ast(filepath: str) -> tuple[ast.Module, str]:
@@ -26,7 +27,7 @@ def get_functions(tree: ast.Module, source: str) -> list[dict]:
     return functions
 
 
-def get_radon_metrics(functions: list[dict], filepath: str) -> list[dict]:
+def get_complexity(functions: list[dict], filepath: str) -> list[dict]:
     from radon.complexity import cc_visit
     from radon.metrics import mi_visit
 
@@ -43,9 +44,43 @@ def get_radon_metrics(functions: list[dict], filepath: str) -> list[dict]:
                         "start_line": func["start_line"],
                         "end_line": func["end_line"],
                     },
-                    "metrics": {"cc": cc[0].complexity, "mi": round(mi, 2)},
+                    "metrics": {
+                        "cc": cc[0].complexity,
+                        "mi": round(mi, 2),
+                        "smells": {"messages": []},
+                    },
                 }
             )
+    return results
+
+
+def get_smells(results: list[dict], filepath: str) -> list[dict]:
+    output = subprocess.run(
+        ["pylint", filepath, "--output-format=json"], capture_output=True, text=True
+    )
+
+    try:
+        pylint_messages = json.loads(output.stdout)
+    except json.JSONDecodeError:
+        pylint_messages = []
+
+    for result in results:
+        start = result["source"]["start_line"]
+        end = result["source"]["end_line"]
+
+        messages = [
+            {
+                "line": msg["line"],
+                "code": msg["message-id"],
+                "message": msg["message"],
+                "symbol": msg["symbol"],
+            }
+            for msg in pylint_messages
+            if start <= msg["line"] <= end
+        ]
+
+        result["metrics"]["smells"] = messages
+
     return results
 
 
@@ -61,7 +96,8 @@ if __name__ == "__main__":
 
     tree, source = load_ast(filepath)
     functions = get_functions(tree, source)
-    results = get_radon_metrics(functions)
+    results = get_complexity(functions, filepath)
+    results = get_smells(results, filepath)
 
     write_jsonl(results, output_path)
     print(f"Written {len(results)} functions to {output_path}")
