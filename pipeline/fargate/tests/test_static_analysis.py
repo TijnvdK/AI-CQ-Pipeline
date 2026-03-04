@@ -2,8 +2,9 @@ import ast
 import json
 
 import pytest
-from src.handler import (get_complexity, get_functions, get_smells, load_ast,
-                         write_jsonl)
+
+from src.static_analysis import (get_complexity, get_functions, get_smells,
+                                 load_ast, write_jsonl)
 
 SAMPLE_CODE = """
 def simple_function(x):
@@ -89,6 +90,8 @@ def test_write_jsonl(sample_file, tmp_path):
     tree, source = load_ast(sample_file)
     functions = get_functions(tree, source)
     results = get_complexity(functions, sample_file)
+
+    print(results)
 
     output_path = str(tmp_path / "output.jsonl")
     write_jsonl(results, output_path)
