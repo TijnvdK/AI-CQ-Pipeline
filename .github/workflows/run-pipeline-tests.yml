@@ -1,0 +1,64 @@
+name: Run Pipeline Task Tests
+on:
+  pull_request:
+    paths:
+      - "pipeline/tasks/**"
+      - "pipeline/lambdas/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "pipeline/tasks/**"
+      - "pipeline/lambdas/**"
+jobs:
+  retrieve:
+    name: Retrieve Pipeline Tasks and Lambdas and their tests
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.retrieve.outputs.components }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Retrieve Pipeline Tasks and Lambdas and their tests
+        id: retrieve
+        run: |
+          components=$(find pipeline/tasks pipeline/lambdas -mindepth 1 -maxdepth 1 -type d \
+            -exec test -d {}/tests \; -print | jq -R -s -c 'split("\n") | map(select(. != ""))')
+          echo "components=$components" >> $GITHUB_OUTPUT
+  test:
+    name: Run Tests of ${{ matrix.component }}
+    needs: retrieve
+    if: ${{ needs.retrieve.outputs.components != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(needs.retrieve.outputs.components) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            ${{ matrix.component }}/requirements.txt
+            ${{ matrix.component }}/requirements-dev.txt
+      - name: Install dependencies
+        working-directory: ${{ matrix.component }}
+        run: |
+          python -m pip install --upgrade pip
+          [ -f requirements.txt ] && pip install -r requirements.txt || true
+          [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || true
+          pip install pytest pytest-cov
+      - name: Run tests
+        working-directory: ${{ matrix.component }}
+        env:
+          PYTHONPATH: src
+        run: |
+          pytest tests/ --tb=short --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml -v
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-${{ strategy.job-index }}
+          path: ${{ matrix.component }}/coverage.xml
+          retention-days: 7
