@@ -2,7 +2,6 @@ import ast
 import json
 
 import pytest
-
 from src.static_analysis import (get_complexity, get_functions, get_smells,
                                  load_ast, write_jsonl)
 
@@ -19,6 +18,7 @@ def moderate_function(x, y):
     return 0
 """
 
+# THIS IS NOT UPDATED
 
 @pytest.fixture
 def sample_file(tmp_path):
