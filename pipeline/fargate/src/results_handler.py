@@ -1,5 +1,6 @@
+from collections import defaultdict
 from tempfile import NamedTemporaryFile
-from typing import List, Optional, TypedDict
+from typing import Dict, List, Optional, TypedDict
 from os import unlink as os_unlink
 from logging import getLogger
 from llm_handler import RefactoredResponse
@@ -49,3 +50,54 @@ def get_before_vs_after_metrics(sa_results: List[AnalysisResult], llm_results: L
         ))
 
     return before_after_metrics
+
+def apply_llm_changes(llm_results: List[RefactoredResponse]) -> int:
+    changes_by_file: Dict[str, List[RefactoredResponse]] = defaultdict(list)
+    for result in llm_results:
+        if result["after_code"] is None:
+            continue
+
+        filepath = result["source"]["file"]
+        changes_by_file[filepath].append(result)
+
+    applied = 0
+    for filepath, changes in changes_by_file.items():
+        # Sort by start_line
+        changes.sort(key=lambda c: c["source"]["start_line"], reverse=True)
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        for change in changes:
+            start = change["source"]["start_line"] - 1 # Convert to 0-based index
+            end = change["source"]["end_line"]
+
+            # We have to do some weird indentation adjustments in the cases
+            # that the functions are for example under a class or an if __name__ == "__main__" block,
+            # because the LLM doesn't know the original indentation level
+            original_indent = len(lines[start]) - len(lines[start].lstrip())
+            indent_str = lines[start][:original_indent]
+
+            after_lines = change["after_code"].splitlines(keepends=True)
+            if after_lines:
+                after_indent = len(after_lines[0]) - len(after_lines[0].lstrip())
+                reindented = []
+                for line in after_lines:
+                    if line.strip():
+                        stripped = line[after_indent:] if after_indent == 0 or line[:after_indent].isspace() else line.lstrip()
+                        reindented.append(indent_str + stripped)
+                    else:
+                        reindented.append(line)
+
+                if reindented and not reindented[-1].endswith("\n"):
+                    reindented[-1] += "\n"
+                after_lines = reindented
+
+            lines[start:end] = after_lines
+            applied += 1
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+    logger.info(f"Applied {applied} LLM-generated refactorings to codebase.")
+    return applied

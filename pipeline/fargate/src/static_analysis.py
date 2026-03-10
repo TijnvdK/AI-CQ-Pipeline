@@ -116,14 +116,15 @@ def analyze_file(filepath: str) -> List[AnalysisResult]:
 
     return results
 
-def analyze_dir(directory: str) -> List[AnalysisResult]:
+def analyze_files(directory: str, relative_paths: List[str]) -> List[AnalysisResult]:
     results = []
 
-    for root, _, files in os_walk(directory):
-        for file in files:
-            if file.endswith(".py"):
-                filepath = f"{root}/{file}"
-                logger.info(f"Analyzing {filepath} ...")
-                results.extend(analyze_file(filepath))
+    for rel_path in relative_paths:
+        filepath = f"{directory}/{rel_path}"
+        logger.info(f"Analyzing changed file {filepath} ...")
+        try:
+            results.extend(analyze_file(filepath))
+        except FileNotFoundError:
+            logger.warning(f"File {filepath} not found (possibly deleted in PR), skipping.")
 
     return results

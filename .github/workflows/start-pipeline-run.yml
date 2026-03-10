@@ -12,33 +12,11 @@ jobs:
   trigger-pipeline:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: Get changed files
-        id: changed
-        run: |
-          # Get files changed in this PR compared to the base branch
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD)
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: eu-central-1
-      - name: Upload changed files to S3
-        run: |
-          S3_PREFIX="${{ github.event.pull_request.head.ref }}_pr-${{ github.event.pull_request.number }}"
-          while IFS= read -r file; do
-            if [ -f "$file" ]; then
-              aws s3 cp "$file" "s3://${{ secrets.S3_BUCKET }}/$S3_PREFIX/$file"
-            fi
-          done <<< "${{ steps.changed.outputs.files }}"
       - name: Start AI CQ Pipeline
         run: |
           S3_PREFIX="${{ github.event.pull_request.head.ref }}_pr-${{ github.event.pull_request.number }}"
@@ -59,7 +37,8 @@ jobs:
                 \"environment\": [
                   {\"name\": \"BRANCH\", \"value\": \"${{ github.event.pull_request.head.ref }}\"},
                   {\"name\": \"PR_NUMBER\", \"value\": \"${{ github.event.pull_request.number }}\"},
-                  {\"name\": \"S3_PREFIX\", \"value\": \"$S3_PREFIX\"}
+                  {\"name\": \"S3_PREFIX\", \"value\": \"$S3_PREFIX\"},
+                  {\"name\": \"REPO_NAME\", \"value\": \"${{ github.repository }}\"}
                 ]
               }]
             }"
