@@ -7,7 +7,7 @@ ssm = boto3_client("ssm")
 
 logger = getLogger(__name__)
 
-HTML_URLS_EXPIRE_IN = 3600  # 1 hour
+HTML_URLS_EXPIRE_IN = 604800  # 7 days in seconds
 
 def get_s3_bucket_name():
     try:
