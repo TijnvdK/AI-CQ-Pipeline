@@ -4,10 +4,13 @@ from logging import getLogger
 from os import environ
 from tempfile import TemporaryDirectory
 
+from git import Repo
+
 from llm_handler import refactor_issues_with_llm
-from report_generator import create_report, save_report
-from s3_handler import download_files_from_s3
-from static_analysis import analyze_dir
+from report_generator import create_report
+from results_handler import apply_llm_changes, get_before_vs_after_metrics
+from static_analysis import analyze_files
+from github_handler import get_pr_changed_files, post_comment_to_pr, get_github_token
 
 logging_basicConfig(
     level=INFO,
@@ -16,38 +19,72 @@ logging_basicConfig(
 
 logger = getLogger(__name__)
 
-def main():
+def main() -> int:
     git_branch = environ.get("BRANCH", "")
     pr_number = environ.get("PR_NUMBER", "")
-    s3_prefix = environ.get("S3_PREFIX", "")
+    repo_name = environ.get("REPO_NAME", "")
 
-    if not git_branch or not pr_number or not s3_prefix:
-        logger.error("Missing required environment variables: BRANCH, PR_NUMBER, S3_PREFIX")
-        exit(1)
+    if not git_branch or not pr_number or not repo_name:
+        post_comment_to_pr(repo_name, int(pr_number), "An error occurred during pipeline execution. Please check the logs for details.")
+        logger.error("Missing required environment variables: BRANCH, PR_NUMBER, REPO_NAME")
+        return 1
 
     logger.info(f"Starting pipeline for PR#{pr_number} on branch {git_branch}.")
+    post_comment_to_pr(repo_name, int(pr_number), f"Request received successfully. Starting analysis and refactoring for PR#{pr_number}...")
 
     try:
         with TemporaryDirectory() as code_dir:
-            any_downloaded_files = download_files_from_s3(s3_prefix, code_dir)
+            repo_url = f"https://{get_github_token()}@github.com/{repo_name}.git"
+            repository = Repo.clone_from(repo_url, code_dir, branch=git_branch)
+            logger.info(f"Successfully cloned repository from {repo_name} to {code_dir}.")
 
-            if not any_downloaded_files:
-                logger.info(f"No .py files found in S3 prefix {s3_prefix}. Exiting.")
-                return
+            changed_files = get_pr_changed_files(repo_name, int(pr_number))
+            logger.info(f"Retrieved changed {len(changed_files)} files for PR#{pr_number}")
 
-            logger.info(f"Successfully downloaded files from S3 prefix {s3_prefix} to {code_dir}.")
-
-            sa_results = analyze_dir(code_dir)
+            sa_results = analyze_files(code_dir, changed_files)
             logger.info(f"Static analysis completed with {len(sa_results)} results.")
 
             llm_results = refactor_issues_with_llm(sa_results)
             logger.info(f"LLM refactoring completed with {len(llm_results)} results.")
 
-            report = create_report(pr_number, llm_results)
-            save_report(pr_number, report)
+            before_after_metrics = get_before_vs_after_metrics(sa_results, llm_results)
+            report_url = create_report(pr_number, before_after_metrics)
+
+            post_comment_to_pr(repo_name, int(pr_number),
+                f"Analysis and refactoring completed for PR#{pr_number}. "
+                f"Report generated with {len(llm_results)} issues. "
+                f"Please check the report for details, which can be accessed here: {report_url}. "
+                "The URL is valid for one hour."
+            )
+
+            applied = apply_llm_changes(llm_results)
+            if applied > 0:
+                refactor_branch_name = f"autofix/pr-{pr_number}"
+
+                if refactor_branch_name in repository.branches:
+                    repository.git.branch("-D", refactor_branch_name)
+                    logger.info(f"Deleted existing branch {refactor_branch_name}.")
+
+                repository.git.checkout("-b", refactor_branch_name)
+                repository.git.add("--all")
+                repository.git.commit("-m", f"Apply LLM-generated refactorings for PR#{pr_number}")
+                repository.git.push("origin", refactor_branch_name, force=True)
+                logger.info(f"Pushed refactor branch {refactor_branch_name} with applied changes.")
+                post_comment_to_pr(repo_name, int(pr_number),
+                    f"Applied {applied} LLM-generated refactorings to the codebase. "
+                    f"A new branch `{refactor_branch_name}` has been created with these changes. "
+                    "Tests will be run on that branch. You can review the changes in that branch "
+                    "and merge it if you find the refactorings appropriate."
+                )
+
+            return 0
     except Exception as e:
+        post_comment_to_pr(repo_name, int(pr_number), "An error occurred during pipeline execution. Please check the logs for details.")
         logger.error(f"An error occurred during pipeline execution: {e}")
-        exit(1)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    if (main() == 0):
+        logger.info("Pipeline completed successfully.")
+    else:
+        logger.error("Pipeline failed with errors.")

@@ -1,9 +1,9 @@
-import ast
-import json
+from ast import Module, get_source_segment, parse as ast_parse, walk as ast_walk, FunctionDef, AsyncFunctionDef
+from json import loads as json_loads
 import logging
-import subprocess
+from subprocess import run as subprocess_run
 from os import walk as os_walk
-from typing import Dict, List
+from typing import Any, Dict, List, Tuple, TypedDict
 
 from radon.complexity import cc_visit
 from radon.metrics import mi_visit
@@ -11,19 +11,32 @@ from radon.metrics import mi_visit
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Static Analysis Functions
+class SourceLocation(TypedDict):
+    file: str
+    start_line: int
+    end_line: int
 
-def load_ast(filepath: str):
+class FunctionMetrics(TypedDict):
+    cc: int
+    mi: float
+    smells: List[Dict[str, Any]]
+
+class AnalysisResult(TypedDict):
+    id: str
+    source: SourceLocation
+    metrics: FunctionMetrics
+
+def load_ast(filepath: str) -> Tuple[Module, str]:
     with open(filepath, "r", encoding="utf-8") as f:
         source = f.read()
-    return ast.parse(source, filename=filepath), source
+    return ast_parse(source, filename=filepath), source
 
 
-def get_functions(tree: ast.Module, source: str) -> List[Dict]:
+def get_functions(tree: Module, source: str) -> List[Dict]:
     functions = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            source_segment = ast.get_source_segment(source, node) or ""
+    for node in ast_walk(tree):
+        if isinstance(node, (FunctionDef, AsyncFunctionDef)):
+            source_segment = get_source_segment(source, node) or ""
             functions.append(
                 {
                     "name": node.name,
@@ -34,19 +47,19 @@ def get_functions(tree: ast.Module, source: str) -> List[Dict]:
             )
     return functions
 
-def get_smells(results: List[Dict], filepath: str) -> List[Dict]:
+def get_smells(results: List[AnalysisResult], filepath: str) -> List[AnalysisResult]:
     try:
-        output = subprocess.run(
+        output = subprocess_run(
             ["pylint", filepath, "--output-format=json"],
             capture_output=True,
             text=True,
             timeout=60,
         )
 
-        pylint_messages = json.loads(output.stdout) if output.stdout else []
+        pylint_messages = json_loads(output.stdout) if output.stdout else []
 
     except Exception as e:
-        logger.exception("Failed to run pylint")
+        logger.error(f"Error running pylint on {filepath}: {e}")
         pylint_messages = []
 
     for result in results:
@@ -64,17 +77,16 @@ def get_smells(results: List[Dict], filepath: str) -> List[Dict]:
             if start <= msg["line"] <= end
         ]
 
-        result["smells"] = function_smells
-        logger.info(f'Function {result["id"]} has the following smells: {function_smells}')
+        result["metrics"]["smells"] = function_smells
 
     return results
 
 
-def analyze_file(filepath: str) -> List[Dict]:
+def analyze_file(filepath: str) -> List[AnalysisResult]:
     tree, source = load_ast(filepath)
     functions = get_functions(tree, source)
 
-    results = []
+    results: List[AnalysisResult] = []
 
     for func in functions:
         cc = cc_visit(func["source"])
@@ -85,33 +97,34 @@ def analyze_file(filepath: str) -> List[Dict]:
             continue
 
         results.append(
-            {
-                "id": func["name"],
-                "source": {
-                    "file": filepath,
-                    "start_line": func["start_line"],
-                    "end_line": func["end_line"],
-                },
-                "metrics": {
-                    "cc": cc[0].complexity,
-                    "mi": round(mi, 2),
-                },
-                "smells": [],
-            }
+            AnalysisResult(
+                id=func["name"],
+                source=SourceLocation(
+                    file=filepath,
+                    start_line=func["start_line"],
+                    end_line=func["end_line"],
+                ),
+                metrics=FunctionMetrics(
+                    cc=cc[0].complexity,
+                    mi=round(mi, 2),
+                    smells=[],
+                ),
+            )
         )
 
     results = get_smells(results, filepath)
 
     return results
 
-def analyze_dir(directory: str) -> List[Dict]:
+def analyze_files(directory: str, relative_paths: List[str]) -> List[AnalysisResult]:
     results = []
 
-    for root, _, files in os_walk(directory):
-        for file in files:
-            if file.endswith(".py"):
-                filepath = f"{root}/{file}"
-                logger.info(f"Analyzing {filepath} ...")
-                results.extend(analyze_file(filepath))
+    for rel_path in relative_paths:
+        filepath = f"{directory}/{rel_path}"
+        logger.info(f"Analyzing changed file {filepath} ...")
+        try:
+            results.extend(analyze_file(filepath))
+        except FileNotFoundError:
+            logger.warning(f"File {filepath} not found (possibly deleted in PR), skipping.")
 
     return results
