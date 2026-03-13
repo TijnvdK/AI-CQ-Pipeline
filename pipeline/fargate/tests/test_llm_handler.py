@@ -1,3 +1,6 @@
+import os
+os.environ["AWS_DEFAULT_REGION"] = "eu-north-1"
+
 import pytest
 from unittest.mock import MagicMock, mock_open, patch
 from src.llm_handler import (
