@@ -201,18 +201,25 @@ class TestRefactorAll:
 class TestGetOpenaiApiToken:
     def test_returns_token_on_success(self):
         mock_ssm = MagicMock()
-        mock_ssm.get_parameter.return_value = {"Parameter": {"Value": "sk-test-token"}}
-        with patch("src.llm_handler.boto3_client", return_value=mock_ssm), \
-             patch("src.llm_handler.ssm", None), \
-             patch.dict("os.environ", {}, clear=False):
+        mock_ssm.get_parameter.return_value = {
+            "Parameter": {"Value": "sk-test-token"}
+        }
+
+        with patch("src.llm_handler.ssm", mock_ssm), \
+             patch.dict("src.llm_handler.environ", {}, clear=True):
             assert get_openai_api_token() == "sk-test-token"
+
+        mock_ssm.get_parameter.assert_called_once_with(
+            Name="/ai-cq-pipeline/openai-api-key",
+            WithDecryption=True,
+        )
 
     def test_raises_on_ssm_error(self):
         mock_ssm = MagicMock()
         mock_ssm.get_parameter.side_effect = Exception("SSM error")
-        with patch("src.llm_handler.boto3_client", return_value=mock_ssm), \
-             patch("src.llm_handler.ssm", None), \
-             patch.dict("os.environ", {}, clear=False):
+
+        with patch("src.llm_handler.ssm", mock_ssm), \
+             patch.dict("src.llm_handler.environ", {}, clear=True):
             with pytest.raises(Exception, match="SSM error"):
                 get_openai_api_token()
 
