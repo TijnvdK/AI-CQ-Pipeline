@@ -206,7 +206,7 @@ class TestGetOpenaiApiToken:
         }
 
         with patch("src.llm_handler.ssm", mock_ssm), \
-             patch.dict("src.llm_handler.environ", {}, clear=True):
+             patch.dict("os.environ", {}, clear=True):
             assert get_openai_api_token() == "sk-test-token"
 
         mock_ssm.get_parameter.assert_called_once_with(
@@ -219,7 +219,7 @@ class TestGetOpenaiApiToken:
         mock_ssm.get_parameter.side_effect = Exception("SSM error")
 
         with patch("src.llm_handler.ssm", mock_ssm), \
-             patch.dict("src.llm_handler.environ", {}, clear=True):
+             patch.dict("os.environ", {}, clear=True):
             with pytest.raises(Exception, match="SSM error"):
                 get_openai_api_token()
 
