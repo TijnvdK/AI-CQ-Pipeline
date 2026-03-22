@@ -5,12 +5,12 @@ from os import environ
 from tempfile import TemporaryDirectory
 
 from git import Repo
-
+from github_handler import (get_github_token, get_pr_changed_files,
+                            post_comment_to_pr)
 from llm_handler import refactor_issues_with_llm
 from report_generator import create_report
 from results_handler import apply_llm_changes, get_before_vs_after_metrics
 from static_analysis import analyze_files
-from github_handler import get_pr_changed_files, post_comment_to_pr, get_github_token
 
 logging_basicConfig(
     level=INFO,
@@ -50,11 +50,12 @@ def main() -> int:
             before_after_metrics = get_before_vs_after_metrics(sa_results, llm_results)
             report_url = create_report(pr_number, before_after_metrics)
 
-            post_comment_to_pr(repo_name, int(pr_number),
+            post_comment_to_pr(
+                repo_name,
+                int(pr_number),
                 f"Analysis and refactoring completed for PR#{pr_number}. "
-                f"Report generated with {len(llm_results)} issues. "
-                f"Please check the report for details, which can be accessed here: {report_url}. "
-                "The URL is valid for one hour."
+                f"Report generated with {len(llm_results)} issues.\n\n"
+                f"Report URL (valid for seven days): [Open report]({report_url})"
             )
 
             applied = apply_llm_changes(llm_results)

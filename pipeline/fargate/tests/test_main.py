@@ -1,10 +1,9 @@
+import importlib
 import sys
 import types
-import importlib
 from unittest.mock import Mock, patch
 
 import pytest
-
 
 # 先伪造 main.py 依赖的模块，避免 import src.main 时失败
 fake_llm_handler = types.ModuleType("llm_handler")
@@ -107,9 +106,8 @@ class TestMain:
                 "owner/repo",
                 123,
                 "Analysis and refactoring completed for PR#123. "
-                "Report generated with 1 issues. "
-                "Please check the report for details, which can be accessed here: https://report-url. "
-                "The URL is valid for one hour."
+                "Report generated with 1 issues.\n\n"
+                "Report URL (valid for seven days): [Open report](https://report-url)"
             )
 
             mock_repository.git.checkout.assert_not_called()

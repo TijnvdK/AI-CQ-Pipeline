@@ -1,0 +1,72 @@
+---
+- name: Deploy AI CQ Pipeline AWS Infrastructure and Sync GitHub Secrets
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/secrets.yaml
+
+  tasks:
+    - name: Ensure SecureString Parameters exist in SSM
+      community.aws.ssm_parameter:
+        profile: "{{ AWS_PROFILE }}"
+        region: "{{ AWS_REGION }}"
+        name: "/{{ PREFIX }}/{{ item.name }}"
+        value: "{{ item.value }}"
+        string_type: SecureString
+        state: present
+        overwrite_value: always
+      loop:
+        - { name: 'github-token', value: "{{ GITHUB_TOKEN }}" }
+        - { name: 'openai-api-key', value: "{{ OPENAI_TOKEN }}" }
+      no_log: true
+
+    - name: Deploy CloudFormation Stack
+      amazon.aws.cloudformation:
+        profile: "{{ AWS_PROFILE }}"
+        stack_name: "{{ PREFIX }}-infrastructure"
+        state: present
+        region: "{{ AWS_REGION }}"
+        template: "{{ playbook_dir }}/../cloud_formation/template.yaml"
+        template_parameters:
+          S3BucketName: "{{ S3_BUCKET_NAME }}"
+          Prefix: "{{ PREFIX }}"
+          GitHubOrg: "{{ GITHUB_ORG }}"
+          GitHubRepo: "{{ GITHUB_REPO }}"
+      register: stack_output
+
+    - name: Build and push Docker image to ECR
+      ansible.builtin.shell: |
+        aws ecr get-login-password --region {{ AWS_REGION }} --profile {{ AWS_PROFILE }} | \
+          docker login --username AWS --password-stdin {{ AWS_ACCOUNT_ID }}.dkr.ecr.{{ AWS_REGION }}.amazonaws.com
+
+        docker build -t {{ PREFIX }}-ecr {{ playbook_dir }}/../../pipeline/fargate/
+
+        docker tag {{ PREFIX }}-ecr:latest \
+          {{ AWS_ACCOUNT_ID }}.dkr.ecr.{{ AWS_REGION }}.amazonaws.com/{{ PREFIX }}-ecr:latest
+
+        docker push \
+          {{ AWS_ACCOUNT_ID }}.dkr.ecr.{{ AWS_REGION }}.amazonaws.com/{{ PREFIX }}-ecr:latest
+
+    - name: Set GitHub Repository Secrets
+      ansible.builtin.command:
+        argv:
+          - gh
+          - secret
+          - set
+          - "{{ item.name }}"
+          - --repo
+          - "{{ GITHUB_ORG }}/{{ GITHUB_REPO }}"
+          - --body
+          - "{{ item.value }}"
+      environment:
+        GH_TOKEN: "{{ GITHUB_TOKEN }}"
+      loop:
+        - { name: 'AWS_ROLE_ARN', value: "{{ stack_output.stack_outputs.GitHubActionsRoleARN }}" }
+        - { name: 'CONTAINER_NAME', value: "{{ PREFIX }}-container" }
+        - { name: 'ECS_CLUSTER', value: "{{ stack_output.stack_outputs.ECSClusterARN }}" }
+        - { name: 'ECS_TASK_DEFINITION', value: "{{ stack_output.stack_outputs.ECSTaskDefinitionARN }}" }
+        - { name: 'GH_TOKEN', value: "{{ GITHUB_TOKEN }}" }
+        - { name: 'S3_BUCKET', value: "{{ stack_output.stack_outputs.S3BucketName }}" }
+        - { name: 'SECURITY_GROUP_IDS', value: "{{ [stack_output.stack_outputs.SecurityGroupId] | to_json }}" }
+        - { name: 'SUBNET_IDS', value: "{{ [stack_output.stack_outputs.PublicSubnet1Id, stack_output.stack_outputs.PublicSubnet2Id] | to_json }}" }
+      no_log: true

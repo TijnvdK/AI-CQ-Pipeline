@@ -1,4 +1,10 @@
-## Getting Started
+# Getting Started - Deployment Guide
+
+1. Copy the GitHub Action Workflows under `/pipeline/workflows` to your repository's `.github/workflows` directory.
+2. Set the variables under `/pipeline/fargate/src/variables.py` to match your AWS environment. Use the same values as in the following step.
+3. Navigate to `/ansible` and follow the step in the `README.md` in that directory.
+
+# Getting Started - Developer Guide
 
 1. Clone the repository:
 

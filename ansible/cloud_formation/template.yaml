@@ -1,0 +1,358 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AI CQ Pipeline Infrastructure - ECS Fargate, ECR, S3, VPC'
+
+# ==============================================================================
+# PARAMETERS
+# ==============================================================================
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: Name of the S3 bucket for pipeline output
+
+  GitHubOrg:
+    Type: String
+    Description: Your GitHub organization or username (e.g. my-org)
+
+  GitHubRepo:
+    Type: String
+    Description: Your GitHub repository name (e.g. my-repo)
+
+  Prefix:
+    Type: String
+    Description: The naming prefix
+
+# ==============================================================================
+# RESOURCES
+# ==============================================================================
+Resources:
+
+  # ----------------------------------------------------------------------------
+  # 1. PARAMETER STORE
+  # ----------------------------------------------------------------------------
+  SSMS3BucketName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${Prefix}/s3-bucket-name'
+      Type: String
+      Value: !Ref S3BucketName
+      Description: S3 Bucket Name for AI CQ Pipeline
+
+  # ----------------------------------------------------------------------------
+  # 2. VPC
+  # ----------------------------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-vpc'
+
+  # Internet Gateway (needed for public subnets)
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-igw'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ----------------------------------------------------------------------------
+  # 3. PUBLIC SUBNETS (2)
+  # ----------------------------------------------------------------------------
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-subnet-public-1'
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-subnet-public-2'
+
+  # Route Table for public subnets
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-route-table-public'
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ----------------------------------------------------------------------------
+  # 4. S3 GATEWAY ENDPOINT
+  # ----------------------------------------------------------------------------
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PublicRouteTable
+
+  # ----------------------------------------------------------------------------
+  # 5. SECURITY GROUP — egress only (no inbound traffic allowed)
+  # ----------------------------------------------------------------------------
+  EgressOnlySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Prefix}-sg-egress-only'
+      GroupDescription: Allow all outbound traffic, no inbound
+      VpcId: !Ref VPC
+      # No SecurityGroupIngress = no inbound rules
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-sg-egress-only'
+
+  # ----------------------------------------------------------------------------
+  # 6. S3 BUCKET
+  # ----------------------------------------------------------------------------
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+            BucketKeyEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-bucket'
+
+  # ----------------------------------------------------------------------------
+  # 7. ECR REPOSITORY
+  # ----------------------------------------------------------------------------
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${Prefix}-ecr'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-ecr'
+
+  # ----------------------------------------------------------------------------
+  # 8. IAM — Fargate Execution Role (pull from ECR + write logs)
+  # ----------------------------------------------------------------------------
+  FargateExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Prefix}-fargate-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ----------------------------------------------------------------------------
+  # 9. IAM — Fargate Task Role (access S3 + read Parameter Store at runtime)
+  # ----------------------------------------------------------------------------
+  FargateTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Prefix}-fargate-task-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  FargateS3AccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${Prefix}-iam-s3-access-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3AccessForPipeline
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:PutObjectTagging
+            Resource:
+              - !GetAtt S3Bucket.Arn
+              - !Sub '${S3Bucket.Arn}/*'
+          - Sid: SSMReadAccess
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource:
+              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/*'
+      Roles:
+        - !Ref FargateTaskRole
+
+  # ----------------------------------------------------------------------------
+  # 10. IAM — GitHub Actions OIDC
+  # ----------------------------------------------------------------------------
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Prefix}-github-actions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrg}/${GitHubRepo}:*
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonECS_FullAccess
+
+
+  # ----------------------------------------------------------------------------
+  # 11. ECS CLUSTER (Fargate only)
+  # ----------------------------------------------------------------------------
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${Prefix}-cluster'
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+      Tags:
+        - Key: Name
+          Value: !Sub '${Prefix}-cluster'
+
+  # ----------------------------------------------------------------------------
+  # 12. ECS TASK DEFINITION (1 vCPU, 3GB RAM, no port mappings)
+  # ----------------------------------------------------------------------------
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${Prefix}-task'
+      Cpu: '1024'       # 1 vCPU
+      Memory: '3072'    # 3 GB
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt FargateExecutionRole.Arn
+      TaskRoleArn: !GetAtt FargateTaskRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub '${Prefix}-container'
+          # Points to latest image in ECR — push your image before running tasks
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Prefix}-ecr:latest'
+          Essential: true
+          # No PortMappings — this is a batch job, not a web server
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub '/ecs/${Prefix}'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: S3_BUCKET_NAME
+              Value: !Ref S3BucketName
+
+  # CloudWatch Log Group for ECS task logs
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${Prefix}'
+      RetentionInDays: 30
+
+# ==============================================================================
+# OUTPUTS — useful values after deployment
+# ==============================================================================
+Outputs:
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+
+  SecurityGroupId:
+    Description: Egress-only Security Group ID
+    Value: !Ref EgressOnlySecurityGroup
+
+  ECSClusterARN:
+    Description: ECS Cluster ARN
+    Value: !Ref ECSCluster
+
+  ECSTaskDefinitionARN:
+    Description: ECS Task Definition ARN
+    Value: !Ref ECSTaskDefinition
+
+  GitHubActionsRoleARN:
+    Description: GitHub Actions Role ARN
+    Value: !GetAtt GitHubActionsRole.Arn
+
+  S3BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref S3Bucket

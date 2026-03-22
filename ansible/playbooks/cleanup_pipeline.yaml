@@ -1,0 +1,58 @@
+---
+- name: Cleanup AI CQ Pipeline AWS Infrastructure and GitHub Secrets
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/secrets.yaml
+
+  tasks:
+    - name: Remove GitHub Repository Secrets
+      ansible.builtin.command:
+        cmd: gh secret delete {{ item }} --repo {{ GITHUB_ORG }}/{{ GITHUB_REPO }}
+      environment:
+        GH_TOKEN: "{{ GITHUB_TOKEN }}"
+      loop:
+        - AWS_ROLE_ARN
+        - CONTAINER_NAME
+        - ECS_CLUSTER
+        - ECS_TASK_DEFINITION
+        - GH_TOKEN
+        - S3_BUCKET
+        - SECURITY_GROUP_IDS
+        - SUBNET_IDS
+      ignore_errors: true
+      no_log: true
+
+    - name: Delete ECR repository
+      community.aws.ecs_ecr:
+        profile: "{{ AWS_PROFILE }}"
+        region: "{{ AWS_REGION }}"
+        name: "{{ PREFIX }}-ecr"
+        state: absent
+        force_absent: true
+
+    - name: Delete S3 bucket
+      amazon.aws.s3_bucket:
+        profile: "{{ AWS_PROFILE }}"
+        region: "{{ AWS_REGION }}"
+        name: "{{ S3_BUCKET_NAME }}"
+        state: absent
+        force: true
+
+    - name: Delete CloudFormation Stack
+      amazon.aws.cloudformation:
+        profile: "{{ AWS_PROFILE }}"
+        stack_name: "{{ PREFIX }}-infrastructure"
+        state: absent
+        region: "{{ AWS_REGION }}"
+
+    - name: Remove SSM Parameters
+      community.aws.ssm_parameter:
+        profile: "{{ AWS_PROFILE }}"
+        region: "{{ AWS_REGION }}"
+        name: "/{{ PREFIX }}/{{ item }}"
+        state: absent
+      loop:
+        - github-token
+        - openai-api-key
+      no_log: true
