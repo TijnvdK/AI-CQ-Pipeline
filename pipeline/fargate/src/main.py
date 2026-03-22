@@ -55,7 +55,7 @@ def main() -> int:
                 int(pr_number),
                 f"Analysis and refactoring completed for PR#{pr_number}. "
                 f"Report generated with {len(llm_results)} issues.\n\n"
-                f"Report URL (valid for one hour): [Open report]({report_url})"
+                f"Report URL (valid for seven days): [Open report]({report_url})"
             )
 
             applied = apply_llm_changes(llm_results)
