@@ -326,7 +326,7 @@ Resources:
       RetentionInDays: 30
 
 # ==============================================================================
-# OUTPUTS — useful values after deployment
+# OUTPUTS
 # ==============================================================================
 Outputs:
   PublicSubnet1Id:
