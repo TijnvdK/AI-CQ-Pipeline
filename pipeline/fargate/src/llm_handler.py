@@ -1,9 +1,14 @@
 from logging import getLogger
 from typing import Any, List, Optional, TypedDict
-from static_analysis import SourceLocation, AnalysisResult, FunctionMetrics
+
 from boto3 import client as boto3_client
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
+from openai.types.chat import (ChatCompletionMessageParam,
+                               ChatCompletionSystemMessageParam,
+                               ChatCompletionUserMessageParam)
+
+from static_analysis import AnalysisResult, FunctionMetrics, SourceLocation
+from variables import PREFIX
 
 ssm = boto3_client("ssm")
 
@@ -35,7 +40,7 @@ class RefactoredResponse(TypedDict):
 
 def get_openai_api_token() -> str:
     try:
-        response = ssm.get_parameter(Name="/ai-cq-pipeline/openai-api-key", WithDecryption=True)
+        response = ssm.get_parameter(Name=f"/{PREFIX}/openai-api-key", WithDecryption=True)
         return response["Parameter"]["Value"]
     except Exception as e:
         logger.error(f"Error retrieving OpenAI API token: {e}")

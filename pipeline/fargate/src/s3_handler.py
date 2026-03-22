@@ -2,7 +2,9 @@ from logging import getLogger
 
 from boto3 import client as boto3_client
 
-s3 = boto3_client("s3", region_name="eu-central-1", endpoint_url="https://s3.eu-central-1.amazonaws.com")
+from variables import AWS_REGION, PREFIX
+
+s3 = boto3_client("s3", region_name=AWS_REGION, endpoint_url=f"https://s3.{AWS_REGION}.amazonaws.com")
 ssm = boto3_client("ssm")
 
 logger = getLogger(__name__)
@@ -11,7 +13,7 @@ HTML_URLS_EXPIRE_IN = 604800  # 7 days
 
 def get_s3_bucket_name():
     try:
-        response = ssm.get_parameter(Name="/ai-cq-pipeline/s3-bucket-name", WithDecryption=False)
+        response = ssm.get_parameter(Name=f"/{PREFIX}/s3-bucket-name", WithDecryption=False)
         return response["Parameter"]["Value"]
     except Exception as e:
         logger.error(f"Error retrieving S3 bucket name: {e}")

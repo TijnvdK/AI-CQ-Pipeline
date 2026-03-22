@@ -1,8 +1,10 @@
 from logging import getLogger
 from typing import List
+
 from boto3 import client as boto3_client
-from github import Auth
-from github import Github
+from github import Auth, Github
+
+from variables import PREFIX
 
 ssm = boto3_client("ssm")
 
@@ -13,7 +15,7 @@ _github_client = None
 
 def get_github_token() -> str:
     try:
-        response = ssm.get_parameter(Name="/ai-cq-pipeline/github-token", WithDecryption=True)
+        response = ssm.get_parameter(Name=f"/{PREFIX}/github-token", WithDecryption=True)
         return response["Parameter"]["Value"]
     except Exception as e:
         logger.error(f"Error retrieving GitHub token: {e}")
@@ -50,4 +52,3 @@ def get_pr_changed_files(repo_name: str, pr_number: int) -> List[str]:
     pr = repo.get_pull(pr_number)
 
     return [f.filename for f in pr.get_files() if f.filename.endswith(".py")]
-
