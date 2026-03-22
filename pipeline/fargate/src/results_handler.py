@@ -62,7 +62,6 @@ def apply_llm_changes(llm_results: List[RefactoredResponse]) -> int:
 
     applied = 0
     for filepath, changes in changes_by_file.items():
-        # Sort by start_line
         changes.sort(key=lambda c: c["source"]["start_line"], reverse=True)
 
         with open(filepath, "r", encoding="utf-8") as f:
