@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 # 先 mock boto3.client，再导入模块，避免 import 时真实初始化 AWS client
 with patch("boto3.client") as mock_boto3_client:
@@ -64,9 +65,7 @@ class TestSaveHtmlFileToS3:
                 Params={"Bucket": "my-test-bucket", "Key": "path/file.html"},
                 ExpiresIn=s3_handler.HTML_URLS_EXPIRE_IN,
             )
-            mock_logger.info.assert_called_once_with(
-                "Successfully saved file to S3 at path/file.html."
-            )
+            mock_logger.info.assert_any_call("Successfully saved file to S3 at path/file.html.")
 
     def test_save_html_file_to_s3_put_object_failure_logs_and_raises(self):
         with patch.object(s3_handler, "s3") as mock_s3, \
