@@ -5,8 +5,11 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
+from variables import PREFIX
 
 from boto3 import client as boto3_client
+
+ssm = boto3_client("ssm")
 
 from provider import LLMProvider, get_provider
 from static_analysis import AnalysisResult, FunctionMetrics, SourceLocation
@@ -17,6 +20,14 @@ logger = getLogger(__name__)
 CC_THRESHOLD = 5
 MI_THRESHOLD = 85
 
+
+def get_openai_api_token() -> str:
+    try:
+        response = ssm.get_parameter(Name=f"/{PREFIX}/openai-api-key", WithDecryption=True)
+        return response["Parameter"]["Value"]
+    except Exception as e:
+        logger.error(f"Error retrieving OpenAI API token: {e}")
+        raise
 
 # ========= Types =========
 class FlaggedIssue(TypedDict):
@@ -86,27 +97,6 @@ def extract_codeblock(text: Optional[str]) -> Optional[str]:
         block = block[6:].lstrip("\n")
     return block.strip()
 
-def build_messages(original_code: str) -> List[ChatCompletionMessageParam]:
-    system_prompt = (
-        "You are an expert software engineer. "
-        "Return ONLY the refactored Python code wrapped in triple backticks with 'python' language identifier. "
-        "Format your response exactly like this:\n\n"
-        "```python\n"
-        "# your refactored code here\n"
-        "```\n\n"
-        "You MUST preserve the original function's name and signature exactly as-is. "
-        "You may extract logic into additional helper functions and call them from within the original function, "
-        "but the original function's name and parameters must remain unchanged. "
-        "Do not include any explanation, comments, or additional text outside the code block."
-    )
-    user_prompt = (
-        f"With no explanation refactor the Python code to improve its quality:"
-        f"\n\n```python\n{original_code}\n```"
-    )
-    system_message: ChatCompletionSystemMessageParam = {"role": "system", "content": system_prompt}
-    user_message: ChatCompletionUserMessageParam = {"role": "user", "content": user_prompt}
-    return [system_message, user_message]
-
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -144,6 +134,27 @@ def collect_flagged(sa_results: List[AnalysisResult]) -> List[FlaggedIssue]:
 
     return flagged
 
+def build_messages(original_code: str) -> List[ChatCompletionMessageParam]:
+    system_prompt = (
+        "You are an expert software engineer. "
+        "Return ONLY the refactored Python code wrapped in triple backticks with 'python' language identifier. "
+        "Format your response exactly like this:\n\n"
+        "```python\n"
+        "# your refactored code here\n"
+        "```\n\n"
+        "You MUST preserve the original function's name and signature exactly as-is. "
+        "You may extract logic into additional helper functions and call them from within the original function, "
+        "but the original function's name and parameters must remain unchanged. "
+        "Do not include any explanation, comments, or additional text outside the code block."
+    )
+    user_prompt = (
+        f"With no explanation refactor the Python code to improve its quality:"
+        f"\n\n```python\n{original_code}\n```"
+    )
+    system_message: ChatCompletionSystemMessageParam = {"role": "system", "content": system_prompt}
+    user_message: ChatCompletionUserMessageParam = {"role": "user", "content": user_prompt}
+    return [system_message, user_message]
+
 
 def refactor_all(
     provider: LLMProvider,
@@ -162,7 +173,7 @@ def refactor_all(
 
         try:
             raw = provider.complete(flagged_issue["before_code"])
-            after_code = raw
+            after_code = extract_codeblock(raw)
         except Exception as e:
             logger.error(f"[{index}/{total}] Error processing issue: {flagged_issue['id']}.\nError: {e}")
             after_code = None
