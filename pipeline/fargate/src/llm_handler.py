@@ -81,6 +81,27 @@ def extract_codeblock(text: Optional[str]) -> Optional[str]:
         block = block[6:].lstrip("\n")
     return block.strip()
 
+def build_messages(original_code: str) -> List[ChatCompletionMessageParam]:
+    system_prompt = (
+        "You are an expert software engineer. "
+        "Return ONLY the refactored Python code wrapped in triple backticks with 'python' language identifier. "
+        "Format your response exactly like this:\n\n"
+        "```python\n"
+        "# your refactored code here\n"
+        "```\n\n"
+        "You MUST preserve the original function's name and signature exactly as-is. "
+        "You may extract logic into additional helper functions and call them from within the original function, "
+        "but the original function's name and parameters must remain unchanged. "
+        "Do not include any explanation, comments, or additional text outside the code block."
+    )
+    user_prompt = (
+        f"With no explanation refactor the Python code to improve its quality:"
+        f"\n\n```python\n{original_code}\n```"
+    )
+    system_message: ChatCompletionSystemMessageParam = {"role": "system", "content": system_prompt}
+    user_message: ChatCompletionUserMessageParam = {"role": "user", "content": user_prompt}
+    return [system_message, user_message]
+
 
 # ---------------------------------------------------------------------------
 # Core logic
