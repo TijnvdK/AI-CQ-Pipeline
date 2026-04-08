@@ -1,5 +1,10 @@
 from logging import getLogger
 from typing import Any, List, Optional, TypedDict
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
 
 from boto3 import client as boto3_client
 
