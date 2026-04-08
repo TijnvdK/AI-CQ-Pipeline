@@ -6,6 +6,7 @@ from openai.types.chat import (
     ChatCompletionUserMessageParam,
 )
 from variables import PREFIX
+from openai import OpenAI
 
 from boto3 import client as boto3_client
 
@@ -173,7 +174,7 @@ def refactor_all(
 
         try:
             raw = provider.complete(flagged_issue["before_code"])
-            after_code = extract_codeblock(raw)
+            after_code = raw
         except Exception as e:
             logger.error(f"[{index}/{total}] Error processing issue: {flagged_issue['id']}.\nError: {e}")
             after_code = None
