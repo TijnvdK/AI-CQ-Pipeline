@@ -128,3 +128,14 @@ def analyze_files(directory: str, relative_paths: List[str]) -> List[AnalysisRes
             logger.warning(f"File {filepath} not found (possibly deleted in PR), skipping.")
 
     return results
+
+def analyze_cc(code: str) -> int:
+    return 0
+
+
+def analyze_mi(code: str) -> float:
+    return 100.0
+
+
+def analyze_smells(code: str) -> list:
+    return []
