@@ -164,11 +164,12 @@ class TestRefactorAll:
             "id": id,
             "source": {"file": "a.py", "start_line": 1, "end_line": 5},
             "before_code": code,
+            "metrics": {"cc": 10, "mi": 50.0, "smells": []},
         }
 
     def _make_provider(self, content="def f(): pass"):
         provider = MagicMock()
-        provider.complete.return_value = content
+        provider.complete_with_prompt.return_value = content
         return provider
 
     def test_happy_path_returns_after_code(self):
@@ -178,7 +179,7 @@ class TestRefactorAll:
 
     def test_api_error_sets_after_code_none(self):
         provider = MagicMock()
-        provider.complete.side_effect = Exception("API error")
+        provider.complete_with_prompt.side_effect = Exception("API error")
         results = refactor_all(provider, [self._make_flagged()])
         assert results[0]["after_code"] is None
 
@@ -244,7 +245,7 @@ class TestRefactorIssuesWithLlm:
         with patch("src.llm_handler.extract_code_fragment", return_value=long_code), \
              patch("src.llm_handler.get_provider") as mock_get_provider:
             mock_provider = MagicMock()
-            mock_provider.complete.return_value = "def fn_b(): pass"
+            mock_provider.complete_with_prompt.return_value = "def fn_b(): pass"
             mock_get_provider.return_value = mock_provider
             results = refactor_issues_with_llm([sa_result])
 
