@@ -21,6 +21,14 @@ class LLMProvider(ABC):
         """Send code to the model and return the refactored code string. Return None on failure."""
         raise NotImplementedError
 
+    def complete_with_prompt(self, user_prompt: str) -> Optional[str]:
+        """
+        Send a custom user prompt (with system prompt) and return extracted code.
+        Default falls back to complete() for backward compatibility.
+        Subclasses should override for proper handling.
+        """
+        return self.complete(user_prompt)
+
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -51,6 +59,14 @@ def _build_messages_openai(original_code: str) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": _user_prompt(original_code)},
+    ]
+
+
+def _build_messages_openai_custom(user_prompt: str) -> list[dict[str, str]]:
+    """Build messages with a custom user prompt (for targeted refactoring)."""
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
     ]
 
 
@@ -95,6 +111,19 @@ class OpenAIProvider(LLMProvider):
             logger.exception("OpenAIProvider (%s) error: %s", self.model, e)
             return None
 
+    def complete_with_prompt(self, user_prompt: str) -> Optional[str]:
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=_build_messages_openai_custom(user_prompt),
+                max_completion_tokens=32768,
+            )
+            content = resp.choices[0].message.content
+            return _extract_python_code_block(content)
+        except Exception as e:
+            logger.exception("OpenAIProvider (%s) complete_with_prompt error: %s", self.model, e)
+            return None
+
 
 class ClaudeProvider(LLMProvider):
     def __init__(self, api_key: str, model: str):
@@ -119,6 +148,22 @@ class ClaudeProvider(LLMProvider):
             logger.exception("ClaudeProvider (%s) error: %s", self.model, e)
             return None
 
+    def complete_with_prompt(self, user_prompt: str) -> Optional[str]:
+        try:
+            resp = self.client.messages.create(
+                model=self.model,
+                max_tokens=16000,
+                system=_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            text = "".join(
+                block.text for block in resp.content if getattr(block, "type", None) == "text"
+            )
+            return _extract_python_code_block(text)
+        except Exception as e:
+            logger.exception("ClaudeProvider (%s) complete_with_prompt error: %s", self.model, e)
+            return None
+
 
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str, model: str):
@@ -139,6 +184,20 @@ class GeminiProvider(LLMProvider):
             return _extract_python_code_block(getattr(resp, "text", None))
         except Exception as e:
             logger.exception("GeminiProvider (%s) error: %s", self.model, e)
+            return None
+
+    def complete_with_prompt(self, user_prompt: str) -> Optional[str]:
+        try:
+            resp = self.client.models.generate_content(
+                model=self.model,
+                contents=user_prompt,
+                config={
+                    "system_instruction": _SYSTEM_PROMPT,
+                },
+            )
+            return _extract_python_code_block(getattr(resp, "text", None))
+        except Exception as e:
+            logger.exception("GeminiProvider (%s) complete_with_prompt error: %s", self.model, e)
             return None
 
 
@@ -162,6 +221,19 @@ class DeepSeekProvider(LLMProvider):
             return _extract_python_code_block(content)
         except Exception as e:
             logger.exception("DeepSeekProvider (%s) error: %s", self.model, e)
+            return None
+
+    def complete_with_prompt(self, user_prompt: str) -> Optional[str]:
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=_build_messages_openai_custom(user_prompt),
+                max_tokens=32768,
+            )
+            content = resp.choices[0].message.content
+            return _extract_python_code_block(content)
+        except Exception as e:
+            logger.exception("DeepSeekProvider (%s) complete_with_prompt error: %s", self.model, e)
             return None
 
 
