@@ -84,19 +84,6 @@ class TestGetFunctions:
 
 class TestGetSmells:
     def test_get_smells_maps_messages_to_matching_functions(self):
-        results = [
-            {
-                "id": "simple_function",
-                "source": {"file": "sample.py", "start_line": 2, "end_line": 3},
-                "metrics": {"cc": 1, "mi": 100.0, "smells": []},
-            },
-            {
-                "id": "moderate_function",
-                "source": {"file": "sample.py", "start_line": 5, "end_line": 11},
-                "metrics": {"cc": 3, "mi": 80.0, "smells": []},
-            },
-        ]
-
         pylint_output = """
 [
   {
@@ -124,19 +111,6 @@ class TestGetSmells:
     "symbol": "no-else-return",
     "message": "Unnecessary else after return",
     "message-id": "R1705"
-  },
-  {
-    "type": "warning",
-    "module": "sample",
-    "obj": "outside",
-    "line": 20,
-    "column": 0,
-    "endLine": 20,
-    "endColumn": 1,
-    "path": "sample.py",
-    "symbol": "unused-variable",
-    "message": "Unused variable 'z'",
-    "message-id": "W0612"
   }
 ]
 """
@@ -145,7 +119,7 @@ class TestGetSmells:
         mock_completed.stdout = pylint_output
 
         with patch.object(static_analysis, "subprocess_run", return_value=mock_completed) as mock_run:
-            updated = static_analysis.get_smells(results, "sample.py")
+            result = static_analysis.get_smells("sample.py")
 
             mock_run.assert_called_once_with(
                 ["pylint", "sample.py", "--output-format=json"],
@@ -154,57 +128,40 @@ class TestGetSmells:
                 timeout=60,
             )
 
-        assert len(updated[0]["metrics"]["smells"]) == 1
-        assert updated[0]["metrics"]["smells"][0]["line"] == 2
-        assert updated[0]["metrics"]["smells"][0]["code"] == "C0116"
-        assert updated[0]["metrics"]["smells"][0]["message"] == "Missing function or method docstring"
-        assert updated[0]["metrics"]["smells"][0]["symbol"] == "missing-function-docstring"
+        assert len(result) == 2
+        assert result[0]["line"] == 2
+        assert result[0]["message-id"] == "C0116"
+        assert result[0]["message"] == "Missing function or method docstring"
+        assert result[0]["symbol"] == "missing-function-docstring"
 
-        assert len(updated[1]["metrics"]["smells"]) == 1
-        assert updated[1]["metrics"]["smells"][0]["line"] == 8
-        assert updated[1]["metrics"]["smells"][0]["code"] == "R1705"
-        assert updated[1]["metrics"]["smells"][0]["message"] == "Unnecessary else after return"
-        assert updated[1]["metrics"]["smells"][0]["symbol"] == "no-else-return"
+        assert result[1]["line"] == 8
+        assert result[1]["message-id"] == "R1705"
+        assert result[1]["message"] == "Unnecessary else after return"
+        assert result[1]["symbol"] == "no-else-return"
 
-    def test_get_smells_returns_empty_smells_when_pylint_fails(self):
-        results = [
-            {
-                "id": "simple_function",
-                "source": {"file": "sample.py", "start_line": 1, "end_line": 2},
-                "metrics": {"cc": 1, "mi": 100.0, "smells": []},
-            }
-        ]
-
+    def test_get_smells_returns_empty_list_when_pylint_fails(self):
         with patch.object(static_analysis, "subprocess_run", side_effect=Exception("pylint failed")), \
              patch.object(static_analysis, "logger") as mock_logger:
 
-            updated = static_analysis.get_smells(results, "sample.py")
+            result = static_analysis.get_smells("sample.py")
 
-            assert updated[0]["metrics"]["smells"] == []
+            assert result == []
             mock_logger.error.assert_called_once()
             assert "Error running pylint on sample.py" in mock_logger.error.call_args[0][0]
 
     def test_get_smells_handles_empty_stdout(self):
-        results = [
-            {
-                "id": "simple_function",
-                "source": {"file": "sample.py", "start_line": 1, "end_line": 2},
-                "metrics": {"cc": 1, "mi": 100.0, "smells": []},
-            }
-        ]
-
         mock_completed = Mock()
         mock_completed.stdout = ""
 
         with patch.object(static_analysis, "subprocess_run", return_value=mock_completed):
-            updated = static_analysis.get_smells(results, "sample.py")
+            result = static_analysis.get_smells("sample.py")
 
-        assert updated[0]["metrics"]["smells"] == []
+        assert result == []
 
 
 class TestAnalyzeFile:
     def test_analyze_file_returns_expected_structure(self, sample_file):
-        with patch.object(static_analysis, "get_smells", side_effect=lambda results, _: results):
+        with patch.object(static_analysis, "get_smells", return_value=[]):
             results = static_analysis.analyze_file(sample_file)
 
         assert len(results) >= 2
@@ -228,13 +185,11 @@ class TestAnalyzeFile:
             assert isinstance(result["metrics"]["smells"], list)
 
     def test_analyze_file_calls_get_smells(self, sample_file):
-        with patch.object(static_analysis, "get_smells", side_effect=lambda results, _: results) as mock_get_smells:
+        with patch.object(static_analysis, "get_smells", return_value=[]) as mock_get_smells:
             results = static_analysis.analyze_file(sample_file)
 
             assert len(results) >= 1
-            mock_get_smells.assert_called_once()
-            args = mock_get_smells.call_args.args
-            assert args[1] == sample_file
+            mock_get_smells.assert_called_once_with(sample_file)
 
     def test_analyze_file_skips_functions_without_cc_results(self, sample_file):
         fake_functions = [
@@ -262,7 +217,7 @@ class TestAnalyzeFile:
              patch.object(static_analysis, "get_functions", return_value=fake_functions), \
              patch.object(static_analysis, "cc_visit", side_effect=[[cc_item], []]), \
              patch.object(static_analysis, "mi_visit", side_effect=[88.123, 77.456]), \
-             patch.object(static_analysis, "get_smells", side_effect=lambda results, _: results):
+             patch.object(static_analysis, "get_smells", return_value=[]):
 
             results = static_analysis.analyze_file(sample_file)
 
@@ -305,8 +260,8 @@ class TestAnalyzeFiles:
             assert results[1]["id"] == "b"
 
             assert mock_analyze.call_count == 2
-            mock_analyze.assert_any_call(f"{base_dir}/a.py")
-            mock_analyze.assert_any_call(f"{base_dir}/b.py")
+            mock_analyze.assert_any_call(f"{base_dir}/a.py", analyze_smells=True)
+            mock_analyze.assert_any_call(f"{base_dir}/b.py", analyze_smells=True)
 
     def test_analyze_files_skips_missing_files(self, tmp_path):
         base_dir = tmp_path

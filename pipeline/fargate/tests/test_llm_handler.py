@@ -85,7 +85,6 @@ class TestExtractCodeblock:
         assert extract_codeblock(text) == "def bar():\n    return 1"
 
     def test_single_backtick_group_returns_content(self):
-        # 源码行为：start 和 end 找到同一对 ``` 的首尾，仍会提取内容
         assert extract_codeblock("```only one```") == "only one"
 
 
@@ -165,37 +164,36 @@ class TestRefactorAll:
             "id": id,
             "source": {"file": "a.py", "start_line": 1, "end_line": 5},
             "before_code": code,
+            "metrics": {"cc": 10, "mi": 50.0, "smells": []},
         }
 
-    def _make_client(self, content="```python\ndef f(): pass\n```"):
-        client = MagicMock()
-        choice = MagicMock()
-        choice.message.content = content
-        client.chat.completions.create.return_value = MagicMock(choices=[choice])
-        return client
+    def _make_provider(self, content="def f(): pass"):
+        provider = MagicMock()
+        provider.complete_with_prompt.return_value = content
+        return provider
 
     def test_happy_path_returns_after_code(self):
-        results = refactor_all(self._make_client(), [self._make_flagged()])
+        results = refactor_all(self._make_provider(), [self._make_flagged()])
         assert len(results) == 1
         assert results[0]["after_code"] is not None
 
     def test_api_error_sets_after_code_none(self):
-        client = MagicMock()
-        client.chat.completions.create.side_effect = Exception("API error")
-        results = refactor_all(client, [self._make_flagged()])
+        provider = MagicMock()
+        provider.complete_with_prompt.side_effect = Exception("API error")
+        results = refactor_all(provider, [self._make_flagged()])
         assert results[0]["after_code"] is None
 
     def test_empty_flagged_returns_empty(self):
-        assert refactor_all(self._make_client(), []) == []
+        assert refactor_all(self._make_provider(), []) == []
 
     def test_preserves_source_and_before_code(self):
-        results = refactor_all(self._make_client(), [self._make_flagged(code="original code")])
+        results = refactor_all(self._make_provider(), [self._make_flagged(code="original code")])
         assert results[0]["before_code"] == "original code"
         assert results[0]["source"]["file"] == "a.py"
 
     def test_multiple_issues_all_processed(self):
         flagged = [self._make_flagged(id=f"f{i}") for i in range(5)]
-        assert len(refactor_all(self._make_client(), flagged)) == 5
+        assert len(refactor_all(self._make_provider(), flagged)) == 5
 
 
 class TestGetOpenaiApiToken:
@@ -243,15 +241,12 @@ class TestRefactorIssuesWithLlm:
             "metrics": {"cc": 10, "mi": 50, "smells": []},
         }
         long_code = "\n".join(f"    x_{i} = {i}" for i in range(15))
-        mock_choice = MagicMock()
-        mock_choice.message.content = "```python\ndef fn_b(): pass\n```"
 
         with patch("src.llm_handler.extract_code_fragment", return_value=long_code), \
-             patch("src.llm_handler.get_openai_api_token", return_value="sk-fake"), \
-             patch("src.llm_handler.OpenAI") as MockOpenAI:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
-            MockOpenAI.return_value = mock_client
+             patch("src.llm_handler.get_provider") as mock_get_provider:
+            mock_provider = MagicMock()
+            mock_provider.complete_with_prompt.return_value = "def fn_b(): pass"
+            mock_get_provider.return_value = mock_provider
             results = refactor_issues_with_llm([sa_result])
 
         assert len(results) == 1
