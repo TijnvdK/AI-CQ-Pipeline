@@ -129,7 +129,7 @@ def analyze_file(filepath: str, analyze_smells: bool = True) -> List[AnalysisRes
     return results
 
 
-def analyze_cc(code: str) -> Int:
+def analyze_cc(code: str) -> int:
     cc = cc_visit(code)
     logger.info(f"CC was done for the LLM output with a result of :{cc}")
     return cc
