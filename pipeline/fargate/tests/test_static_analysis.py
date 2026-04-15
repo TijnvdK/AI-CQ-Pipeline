@@ -164,6 +164,7 @@ class TestGetSmells:
 class TestAnalyzeFile:
     def test_analyze_file_returns_expected_structure(self, sample_file):
         with patch.object(static_analysis, "get_smells", return_value=[]):
+        with patch.object(static_analysis, "get_smells", return_value=[]):
             results = static_analysis.analyze_file(sample_file)
 
         assert len(results) >= 2
