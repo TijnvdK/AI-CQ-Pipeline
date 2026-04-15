@@ -17,7 +17,6 @@ from static_analysis import (
     AnalysisResult,
     FunctionMetrics,
     SourceLocation,
-    analyze_cc,
     analyze_mi,
     analyze_smells,
 )
@@ -293,8 +292,11 @@ def refactor_iterative(
     flagged: List[FlaggedIssue],
 ) -> List[RefactoredResponse]:
     """
-    实验 2 — Iterative：按 CC → MI → Smells 的顺序逐项优化。
-    每一轮优化后重新检测指标，只在仍超阈值时继续下一轮。
+    实验 2 — Iterative：瀑布式 CC → MI → Smells。
+    每步优化后只重新检测下一步需要的指标，不重复计算已完成的指标。
+      Step 1 CC  → reanalyze 只算 MI
+      Step 2 MI  → reanalyze 只算 Smells
+      Step 3 Smells → 不 reanalyze
     """
     results: List[RefactoredResponse] = []
     total = len(flagged)
@@ -303,44 +305,48 @@ def refactor_iterative(
         logger.info(f"[Iterative {idx+1}/{total}] Processing: {issue['id']}")
 
         current_code = issue["before_code"]
-        current_metrics = issue["metrics"]
+        current_metrics = dict(issue["metrics"])  # shallow copy，避免污染原数据
 
         # --- Step 1: CC ---
         if _cc_exceeds(current_metrics):
             cc_val = current_metrics.get("cc", 0)
-            logger.info(f"  [CC] CC={cc_val} > {CC_THRESHOLD}, optimizing ...")
+            logger.info(f"  [Step 1 CC] CC={cc_val} > {CC_THRESHOLD}, optimizing ...")
             prompt = _prompt_cc(current_code, cc_val)
             result = _call_provider(provider, prompt)
             if result:
                 current_code = result
-                current_metrics = _reanalyze(current_code, current_metrics)
         else:
-            logger.info("  [CC] Within threshold, skipping.")
+            logger.info("  [Step 1 CC] Within threshold, skipping LLM call.")
+
+        # CC 完成后，只算 MI（CC 不用重算，smells 也不用算）
+        mi_val = _reanalyze_mi(current_code, current_metrics)
+        current_metrics["mi"] = mi_val
 
         # --- Step 2: MI ---
         if _mi_exceeds(current_metrics):
-            mi_val = current_metrics.get("mi", 100)
-            logger.info(f"  [MI] MI={mi_val:.1f} < {MI_THRESHOLD}, optimizing ...")
+            logger.info(f"  [Step 2 MI] MI={mi_val:.1f} < {MI_THRESHOLD}, optimizing ...")
             prompt = _prompt_mi(current_code, mi_val)
             result = _call_provider(provider, prompt)
             if result:
                 current_code = result
-                current_metrics = _reanalyze(current_code, current_metrics)
         else:
-            logger.info("  [MI] Within threshold, skipping.")
+            logger.info("  [Step 2 MI] Within threshold, skipping LLM call.")
+
+        # MI 完成后，只算 Smells（CC 和 MI 都不用重算）
+        smells_val = _reanalyze_smells(current_code, current_metrics)
+        current_metrics["smells"] = smells_val
 
         # --- Step 3: Code Smells ---
         if _smells_exceed(current_metrics):
-            smells = current_metrics.get("smells")
-            logger.info(f"  [Smells] {smells_count(smells)} smell(s) detected, optimizing ...")
-            prompt = _prompt_smells(current_code, smells)
+            logger.info(f"  [Step 3 Smells] {smells_count(smells_val)} smell(s) detected, optimizing ...")
+            prompt = _prompt_smells(current_code, smells_val)
             result = _call_provider(provider, prompt)
             if result:
                 current_code = result
         else:
-            logger.info("  [Smells] No smells, skipping.")
+            logger.info("  [Step 3 Smells] No smells, skipping LLM call.")
 
-        # 最终结果
+        # 最终结果（Step 3 之后不 reanalyze）
         after_code = current_code if current_code != issue["before_code"] else None
         results.append(RefactoredResponse(
             source=issue["source"],
@@ -352,31 +358,31 @@ def refactor_iterative(
     return results
 
 
-def _reanalyze(code: str, fallback_metrics: FunctionMetrics) -> FunctionMetrics:
-    """
-    对优化后的代码重新跑静态分析，返回新指标。
-    分别调用 analyze_cc / analyze_mi / analyze_smells。
-    任何一项失败则沿用 fallback 中对应的值。
-    """
+def _reanalyze_mi(code: str, fallback_metrics: FunctionMetrics) -> float:
+    """CC 优化后，只重新计算 MI。"""
     try:
-        cc = analyze_cc(code)
-    except Exception as e:
-        logger.warning(f"Re-analysis CC failed: {e}")
-        cc = fallback_metrics.get("cc", 0)
-
-    try:
-        mi = analyze_mi(code)
+        return analyze_mi(code)
     except Exception as e:
         logger.warning(f"Re-analysis MI failed: {e}")
-        mi = fallback_metrics.get("mi", 100.0)
+        return fallback_metrics.get("mi", 100.0)
 
+
+def _reanalyze_smells(code: str, fallback_metrics: FunctionMetrics) -> list:
+    """
+    MI 优化后，只重新计算 Smells。
+    analyze_smells 返回 dict {func_name: [smell_list]}，
+    这里展平成一个 list 以兼容 smells_count / _smells_exceed。
+    """
     try:
-        smells = analyze_smells(code)
+        smells_dict = analyze_smells(code)
+        # 展平: {"fn_a": [{...}, {...}], "fn_b": [{...}]} → [{...}, {...}, {...}]
+        flat = []
+        for smell_list in smells_dict.values():
+            flat.extend(smell_list)
+        return flat
     except Exception as e:
         logger.warning(f"Re-analysis smells failed: {e}")
-        smells = fallback_metrics.get("smells", [])
-
-    return FunctionMetrics(cc=cc, mi=mi, smells=smells)
+        return fallback_metrics.get("smells", [])
 
 
 # ---------------------------------------------------------------------------
