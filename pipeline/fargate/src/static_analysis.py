@@ -62,14 +62,6 @@ def get_functions(tree: Module, source: str) -> List[Dict]:
 
 
 def get_smells(filepath: str) -> List[Dict[str, Any]]:
-    """Run pylint on a file and return raw messages.
-
-    Args:
-        filepath: Path to the Python file to analyze
-
-    Returns:
-        List of pylint messages
-    """
     try:
         output = subprocess_run(
             ["pylint", filepath, "--output-format=json"],
@@ -149,10 +141,6 @@ def analyze_mi(code: str) -> float:
 
 
 def analyze_smells(code: str) -> Dict[str, List[Dict[str, Any]]]:
-    """Analyze code smells per function from a code string.
-
-    Returns: {function_name: [smells], ...}
-    """
     try:
         # temp file for pylint
         with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
