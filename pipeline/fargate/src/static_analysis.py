@@ -61,7 +61,15 @@ def get_functions(tree: Module, source: str) -> List[Dict]:
     return functions
 
 
-def get_smells(results: List[AnalysisResult], filepath: str) -> List[AnalysisResult]:
+def get_smells(filepath: str) -> List[Dict[str, Any]]:
+    """Run pylint on a file and return raw messages.
+
+    Args:
+        filepath: Path to the Python file to analyze
+
+    Returns:
+        List of pylint messages
+    """
     try:
         output = subprocess_run(
             ["pylint", filepath, "--output-format=json"],
@@ -69,31 +77,10 @@ def get_smells(results: List[AnalysisResult], filepath: str) -> List[AnalysisRes
             text=True,
             timeout=60,
         )
-
-        pylint_messages = json_loads(output.stdout) if output.stdout else []
-
+        return json_loads(output.stdout) if output.stdout else []
     except Exception as e:
         logger.error(f"Error running pylint on {filepath}: {e}")
-        pylint_messages = []
-
-    for result in results:
-        start = result["source"]["start_line"]
-        end = result["source"]["end_line"]
-
-        function_smells = [
-            {
-                "line": msg["line"],
-                "code": msg["message-id"],
-                "message": msg["message"],
-                "symbol": msg["symbol"],
-            }
-            for msg in pylint_messages
-            if start <= msg["line"] <= end
-        ]
-
-        result["metrics"]["smells"] = function_smells
-
-    return results
+        return []
 
 
 def analyze_file(filepath: str) -> List[AnalysisResult]:
@@ -128,7 +115,23 @@ def analyze_file(filepath: str) -> List[AnalysisResult]:
             )
         )
 
-    results = get_smells(results, filepath)
+    # Get pylint messages and append smells to results
+    pylint_messages = get_smells(filepath)
+    for result in results:
+        start = result["source"]["start_line"]
+        end = result["source"]["end_line"]
+
+        function_smells = [
+            {
+                "line": msg["line"],
+                "code": msg["message-id"],
+                "message": msg["message"],
+                "symbol": msg["symbol"],
+            }
+            for msg in pylint_messages
+            if start <= msg["line"] <= end
+        ]
+        result["metrics"]["smells"] = function_smells
 
     return results
 
@@ -163,14 +166,7 @@ def analyze_smells(code: str) -> Dict[str, List[Dict[str, Any]]]:
             if not functions:
                 return {}
 
-            output = subprocess_run(
-                ["pylint", temp_filepath, "--output-format=json"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            pylint_messages = json_loads(output.stdout) if output.stdout else []
-
+            pylint_messages = get_smells(temp_filepath)
             smells_by_function = {}
 
             for func in functions:
