@@ -38,8 +38,27 @@ def get_before_vs_after_metrics(sa_results: List[AnalysisResult], llm_results: L
                 tmp_path = tmp.name
 
             try:
-                after_analysis = analyze_file(tmp_path)
+                # Analyze on full file context (no smells yet to avoid false positives from isolated function)
+                after_analysis = analyze_file(tmp_path, analyze_smells=False)
                 after_metrics = [r["metrics"] for r in after_analysis]
+
+                # Now run smells analysis on the full file and extract per-function smells
+                pylint_messages = get_smells(tmp_path)
+                for idx, analysis_result in enumerate(after_analysis):
+                    start = analysis_result["source"]["start_line"]
+                    end = analysis_result["source"]["end_line"]
+
+                    function_smells = [
+                        {
+                            "line": msg["line"],
+                            "code": msg["message-id"],
+                            "message": msg["message"],
+                            "symbol": msg["symbol"],
+                        }
+                        for msg in pylint_messages
+                        if start <= msg["line"] <= end
+                    ]
+                    after_metrics[idx]["smells"] = function_smells
             finally:
                 os_unlink(tmp_path)
 

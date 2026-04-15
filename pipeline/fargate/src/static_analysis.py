@@ -75,7 +75,7 @@ def get_smells(filepath: str) -> List[Dict[str, Any]]:
         return []
 
 
-def analyze_file(filepath: str) -> List[AnalysisResult]:
+def analyze_file(filepath: str, analyze_smells: bool = True) -> List[AnalysisResult]:
     tree, source = load_ast(filepath)
     functions = get_functions(tree, source)
 
@@ -107,23 +107,24 @@ def analyze_file(filepath: str) -> List[AnalysisResult]:
             )
         )
 
-    # Get pylint messages and append smells to results
-    pylint_messages = get_smells(filepath)
-    for result in results:
-        start = result["source"]["start_line"]
-        end = result["source"]["end_line"]
+    # Get pylint messages and append smells to results (if requested)
+    if analyze_smells:
+        pylint_messages = get_smells(filepath)
+        for result in results:
+            start = result["source"]["start_line"]
+            end = result["source"]["end_line"]
 
-        function_smells = [
-            {
-                "line": msg["line"],
-                "code": msg["message-id"],
-                "message": msg["message"],
-                "symbol": msg["symbol"],
-            }
-            for msg in pylint_messages
-            if start <= msg["line"] <= end
-        ]
-        result["metrics"]["smells"] = function_smells
+            function_smells = [
+                {
+                    "line": msg["line"],
+                    "code": msg["message-id"],
+                    "message": msg["message"],
+                    "symbol": msg["symbol"],
+                }
+                for msg in pylint_messages
+                if start <= msg["line"] <= end
+            ]
+            result["metrics"]["smells"] = function_smells
 
     return results
 
@@ -188,14 +189,16 @@ def analyze_smells(code: str) -> Dict[str, List[Dict[str, Any]]]:
         return {}
 
 
-def analyze_files(directory: str, relative_paths: List[str]) -> List[AnalysisResult]:
+def analyze_files(
+    directory: str, relative_paths: List[str], analyze_smells: bool = True
+) -> List[AnalysisResult]:
     results = []
 
     for rel_path in relative_paths:
         filepath = f"{directory}/{rel_path}"
         logger.info(f"Analyzing changed file {filepath} ...")
         try:
-            results.extend(analyze_file(filepath))
+            results.extend(analyze_file(filepath, analyze_smells=analyze_smells))
         except FileNotFoundError:
             logger.warning(
                 f"File {filepath} not found (possibly deleted in PR), skipping."
