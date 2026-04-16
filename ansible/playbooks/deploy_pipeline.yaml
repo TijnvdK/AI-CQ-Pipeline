@@ -18,6 +18,9 @@
       loop:
         - { name: 'github-token', value: "{{ GITHUB_TOKEN }}" }
         - { name: 'openai-api-key', value: "{{ OPENAI_TOKEN }}" }
+        - { name: 'claude-api-key', value: "{{ CLAUDE_TOKEN }}" }
+        - { name: 'gemini-api-key', value: "{{ GEMINI_TOKEN }}" }
+        - { name: 'deepseek-api-key', value: "{{ DEEPSEEK_TOKEN }}" }
       no_log: true
 
     - name: Deploy CloudFormation Stack

@@ -280,7 +280,7 @@ def get_provider() -> LLMProvider:
     Optional:
         LLM_MODEL can override the default model name.
     """
-    provider_name = os.environ.get("LLM_PROVIDER", "gpt54mini").lower()
+    provider_name = "gpt54nano"
 
     if provider_name not in _MODEL_CONFIG:
         valid = ", ".join(sorted(_MODEL_CONFIG.keys()))

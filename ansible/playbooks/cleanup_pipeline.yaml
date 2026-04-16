@@ -55,4 +55,7 @@
       loop:
         - github-token
         - openai-api-key
+        - claude-api-key
+        - gemini-api-key
+        - deepseek-api-key
       no_log: true

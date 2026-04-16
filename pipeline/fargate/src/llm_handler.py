@@ -1,4 +1,4 @@
-import os
+from textwrap import dedent
 from logging import getLogger
 from typing import Any, List, Optional, TypedDict
 
@@ -130,6 +130,7 @@ _BASE_SYSTEM = (
     "You MUST preserve the original function's name and signature exactly as-is. "
     "You may extract logic into additional helper functions and call them from within the original function, "
     "but the original function's name and parameters must remain unchanged. "
+    "Any helper functions you create MUST be placed above the original function, not below it. "
     "Do not include any explanation, comments, or additional text outside the code block."
 )
 
@@ -142,21 +143,19 @@ def _prompt_all(original_code: str, metrics: FunctionMetrics) -> str:
     sc = smells_count(metrics.get("smells"))
 
     if cc > CC_THRESHOLD:
-        issues.append(f"- Cyclomatic Complexity (CC) is {cc}, which exceeds the threshold of {CC_THRESHOLD}. "
-                       "Reduce branching by extracting helper functions, using early returns, or simplifying conditions.")
+        issues.append(f"- Cyclomatic Complexity (CC) is {cc}, which exceeds the threshold of {CC_THRESHOLD}.")
     if mi < MI_THRESHOLD:
-        issues.append(f"- Maintainability Index (MI) is {mi:.1f}, below the threshold of {MI_THRESHOLD}. "
-                       "Improve readability by shortening the function, reducing nesting, and using clear naming.")
+        issues.append(f"- Maintainability Index (MI) is {mi:.1f}, below the threshold of {MI_THRESHOLD}.")
     if sc > 0:
         smell_detail = metrics.get("smells", {})
-        issues.append(f"- Code smells detected ({sc} total): {smell_detail}. "
-                       "Remove the identified code smells while keeping behaviour unchanged.")
+        issues.append(f"- Code smells detected ({sc} total): {smell_detail}.")
 
     issue_block = "\n".join(issues)
     return (
         f"The following function has these specific quality issues:\n{issue_block}\n\n"
         f"Refactor ONLY to fix the issues listed above. Do NOT make unrelated changes.\n\n"
-        f"```python\n{original_code}\n```"
+        # Dedent the original code block to avoid confusion with indentation in the prompt.
+        f"```python\n{dedent(original_code)}\n```"
     )
 
 
@@ -398,13 +397,14 @@ def refactor_all(
       - "all_at_once"  → 实验 1（默认）
       - "iterative"    → 实验 2
     """
-    strategy = os.environ.get("REFACTOR_STRATEGY", STRATEGY_ALL_AT_ONCE).lower()
-    logger.info(f"Refactoring strategy: {strategy}")
+    # strategy = os.environ.get("REFACTOR_STRATEGY", STRATEGY_ALL_AT_ONCE).lower()
+    # logger.info(f"Refactoring strategy: {strategy}")
 
-    if strategy == STRATEGY_ITERATIVE:
-        return refactor_iterative(provider, flagged)
-    else:
-        return refactor_all_at_once(provider, flagged)
+    # if strategy == STRATEGY_ITERATIVE:
+    #     return refactor_iterative(provider, flagged)
+    # else:
+    # return refactor_all_at_once(provider, flagged)
+    return refactor_iterative(provider, flagged)
 
 
 def refactor_issues_with_llm(sa_results: List[AnalysisResult]) -> List[RefactoredResponse]:
