@@ -127,10 +127,10 @@ _BASE_SYSTEM = (
     "```python\n"
     "# your refactored code here\n"
     "```\n\n"
-    "You MUST preserve the original function's name and signature exactly as-is. "
+    "You MUST preserve the original function's name, signature, and all decorators exactly as-is. "
     "You may extract logic into additional helper functions and call them from within the original function, "
-    "but the original function's name and parameters must remain unchanged. "
-    "Any helper functions you create MUST be placed above the original function, not below it. "
+    "but the original function's name, parameters, and decorators must remain unchanged. "
+    "Any helper functions you create MUST be a nested function of the original function. "
     "Do not include any explanation, comments, or additional text outside the code block."
 )
 
@@ -403,8 +403,8 @@ def refactor_all(
     # if strategy == STRATEGY_ITERATIVE:
     #     return refactor_iterative(provider, flagged)
     # else:
-    # return refactor_all_at_once(provider, flagged)
-    return refactor_iterative(provider, flagged)
+    return refactor_all_at_once(provider, flagged)
+    # return refactor_iterative(provider, flagged)
 
 
 def refactor_issues_with_llm(sa_results: List[AnalysisResult]) -> List[RefactoredResponse]:

@@ -41,9 +41,10 @@ _SYSTEM_PROMPT = (
     "```python\n"
     "# your refactored code here\n"
     "```\n\n"
-    "You MUST preserve the original function's name and signature exactly as-is. "
+    "You MUST preserve the original function's name, signature, and all decorators exactly as-is. "
     "You may extract logic into additional helper functions and call them from within the original function, "
-    "but the original function's name and parameters must remain unchanged. "
+    "but the original function's name, parameters, and decorators must remain unchanged. "
+    "Any helper functions you create MUST be a nested function of the original function. "
     "Do not include any explanation, comments, or additional text outside the code block."
 )
 
@@ -250,10 +251,10 @@ _MODEL_CONFIG: dict[str, ProviderConfig] = {
     "gpt54": (OpenAIProvider, "gpt-5.4", "openai-api-key"),
 
     # Anthropic
-    "claude": (ClaudeProvider, "claude-haiku-4-5-20251001", "claude-api-key"),
+    "claude": (ClaudeProvider, "claude-sonnet-4-6", "claude-api-key"),
 
     # Google
-    "gemini": (GeminiProvider, "gemini-3.1-flash-lite-preview", "gemini-api-key"),
+    "gemini": (GeminiProvider, "gemini-3-flash-preview", "gemini-api-key"),
 
     # DeepSeek
     "deepseek": (DeepSeekProvider, "deepseek-reasoner", "deepseek-api-key"),
@@ -280,7 +281,7 @@ def get_provider() -> LLMProvider:
     Optional:
         LLM_MODEL can override the default model name.
     """
-    provider_name = "gpt54nano"
+    provider_name = "gemini"
 
     if provider_name not in _MODEL_CONFIG:
         valid = ", ".join(sorted(_MODEL_CONFIG.keys()))

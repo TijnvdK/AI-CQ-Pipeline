@@ -103,47 +103,54 @@ def get_before_vs_after_metrics(sa_results: List[AnalysisResult], llm_results: L
         if llm_result["after_code"]:
             logger.info(f"Analyzing refactored code for {src}")
 
-            with open(src["file"], "r", encoding="utf-8") as f:
-                original_lines = f.readlines()
-
-            full_file_lines = apply_refactored_code(original_lines, llm_result)
-
-            with NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
-                tmp.writelines(full_file_lines)
-                tmp_path = tmp.name
-
             try:
-                # Analyze on full file context (no smells yet to avoid false positives from isolated function)
-                splice_start = src["start_line"]
-                splice_end = src["start_line"] + len(llm_result["after_code"].splitlines()) - 1
 
-                all_analysis = analyze_file(tmp_path, analyze_smells=False)
-                after_analysis = [
-                    r for r in all_analysis
-                    if r["source"]["start_line"] >= splice_start
-                    and r["source"]["end_line"] <= splice_end
-                ]
-                after_metrics = [r["metrics"] for r in after_analysis]
+                with open(src["file"], "r", encoding="utf-8") as f:
+                    original_lines = f.readlines()
 
-                # Now run smells analysis on the full file and extract per-function smells
-                pylint_messages = get_smells(tmp_path)
-                for idx, analysis_result in enumerate(after_analysis):
-                    start = analysis_result["source"]["start_line"]
-                    end = analysis_result["source"]["end_line"]
+                full_file_lines = apply_refactored_code(original_lines, llm_result)
 
-                    function_smells = [
-                        {
-                            "line": msg["line"],
-                            "code": msg["message-id"],
-                            "message": msg["message"],
-                            "symbol": msg["symbol"],
-                        }
-                        for msg in pylint_messages
-                        if start <= msg["line"] <= end
+                with NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
+                    tmp.writelines(full_file_lines)
+                    tmp_path = tmp.name
+
+                try:
+                    # Analyze on full file context (no smells yet to avoid false positives from isolated function)
+                    splice_start = src["start_line"]
+                    splice_end = src["start_line"] + len(llm_result["after_code"].splitlines()) - 1
+
+                    all_analysis = analyze_file(tmp_path, analyze_smells=False)
+                    after_analysis = [
+                        r for r in all_analysis
+                        if r["source"]["start_line"] >= splice_start
+                        and r["source"]["end_line"] <= splice_end
                     ]
-                    after_metrics[idx]["smells"] = function_smells
-            finally:
-                os_unlink(tmp_path)
+                    after_metrics = [r["metrics"] for r in after_analysis]
+
+                    # Now run smells analysis on the full file and extract per-function smells
+                    pylint_messages = get_smells(tmp_path)
+                    for idx, analysis_result in enumerate(after_analysis):
+                        start = analysis_result["source"]["start_line"]
+                        end = analysis_result["source"]["end_line"]
+
+                        function_smells = [
+                            {
+                                "line": msg["line"],
+                                "code": msg["message-id"],
+                                "message": msg["message"],
+                                "symbol": msg["symbol"],
+                            }
+                            for msg in pylint_messages
+                            if start <= msg["line"] <= end
+                        ]
+                        after_metrics[idx]["smells"] = function_smells
+                finally:
+                    os_unlink(tmp_path)
+
+            except Exception as e:
+                logger.error(f"Error analyzing refactored code for {src}: {e}")
+                logger.error(f'Original code:\n{llm_result["before_code"]}\nRefactored code:\n{llm_result["after_code"]}')
+                raise e
 
         before_after_metrics.append(BeforeAfterMetrics(
             **llm_result,

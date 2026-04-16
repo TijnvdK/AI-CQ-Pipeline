@@ -50,11 +50,18 @@ def get_functions(tree: Module, source: str) -> List[Dict]:
     for node in ast_walk(tree):
         if isinstance(node, (FunctionDef, AsyncFunctionDef)):
             source_segment = get_source_segment(source, node) or ""
+            
+            # Include decorators in the extracted code
+            start_line = node.lineno
+            if node.decorator_list:
+                # If decorators exist, start from the first decorator's line
+                start_line = node.decorator_list[0].lineno
+            
             functions.append(
                 {
                     "name": node.name,
                     "source": source_segment,
-                    "start_line": node.lineno,
+                    "start_line": start_line,
                     "end_line": node.end_lineno,
                 }
             )
