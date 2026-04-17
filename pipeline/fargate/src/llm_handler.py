@@ -403,8 +403,8 @@ def refactor_all(
     # if strategy == STRATEGY_ITERATIVE:
     #     return refactor_iterative(provider, flagged)
     # else:
-    return refactor_all_at_once(provider, flagged)
-    # return refactor_iterative(provider, flagged)
+    # return refactor_all_at_once(provider, flagged)
+    return refactor_iterative(provider, flagged)
 
 
 def refactor_issues_with_llm(sa_results: List[AnalysisResult]) -> List[RefactoredResponse]:
