@@ -50,13 +50,13 @@ def get_functions(tree: Module, source: str) -> List[Dict]:
     for node in ast_walk(tree):
         if isinstance(node, (FunctionDef, AsyncFunctionDef)):
             source_segment = get_source_segment(source, node) or ""
-            
+
             # Include decorators in the extracted code
             start_line = node.lineno
             if node.decorator_list:
                 # If decorators exist, start from the first decorator's line
                 start_line = node.decorator_list[0].lineno
-            
+
             functions.append(
                 {
                     "name": node.name,
@@ -143,6 +143,7 @@ def analyze_cc(code: str) -> int:
 
 
 def analyze_mi(code: str) -> float:
+    # logger.info(f"code sent to MI:\n```python\n{code}\n```")
     mi = mi_visit(code, multi=True)
     logger.info(f"MI was done for the LLM output with a result of: {mi}")
     return mi

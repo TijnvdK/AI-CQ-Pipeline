@@ -4,9 +4,16 @@ from typing import Dict, List, Optional, TypedDict
 from os import unlink as os_unlink
 from logging import getLogger
 from llm_handler import RefactoredResponse
-from static_analysis import AnalysisResult, FunctionMetrics, SourceLocation, analyze_file, get_smells
+from static_analysis import (
+    AnalysisResult,
+    FunctionMetrics,
+    SourceLocation,
+    analyze_file,
+    get_smells,
+)
 
 logger = getLogger(__name__)
+
 
 class BeforeAfterMetrics(TypedDict):
     source: SourceLocation
@@ -15,7 +22,10 @@ class BeforeAfterMetrics(TypedDict):
     before_metrics: FunctionMetrics
     after_metrics: Optional[List[FunctionMetrics]]
 
-def apply_refactored_code(original_lines: List[str], change: RefactoredResponse) -> List[str]:
+
+def apply_refactored_code(
+    original_lines: List[str], change: RefactoredResponse
+) -> List[str]:
     """
     ReturnReturn a copy of original_lines with the function at change["source"] replaced
     by change["after_code"], reindented to match the original indentation level.
@@ -56,6 +66,7 @@ def apply_refactored_code(original_lines: List[str], change: RefactoredResponse)
     result[start:end] = after_lines
     return result
 
+
 def apply_llm_changes(llm_results: List[RefactoredResponse]) -> int:
     changes_by_file: Dict[str, List[RefactoredResponse]] = defaultdict(list)
     for result in llm_results:
@@ -84,17 +95,24 @@ def apply_llm_changes(llm_results: List[RefactoredResponse]) -> int:
     logger.info(f"Applied {applied} LLM-generated refactorings to codebase.")
     return applied
 
-def get_before_vs_after_metrics(sa_results: List[AnalysisResult], llm_results: List[RefactoredResponse]) -> List[BeforeAfterMetrics]:
+
+def get_before_vs_after_metrics(
+    sa_results: List[AnalysisResult], llm_results: List[RefactoredResponse]
+) -> List[BeforeAfterMetrics]:
     before_after_metrics: List[BeforeAfterMetrics] = []
 
     sa_lookup = {
-        (r["source"]["file"], r["source"]["start_line"], r["source"]["end_line"]): r["metrics"]
+        (r["source"]["file"], r["source"]["start_line"], r["source"]["end_line"]): r[
+            "metrics"
+        ]
         for r in sa_results
     }
 
     for llm_result in llm_results:
         src = llm_result["source"]
-        before_metrics = sa_lookup.get((src["file"], src["start_line"], src["end_line"]))
+        before_metrics = sa_lookup.get(
+            (src["file"], src["start_line"], src["end_line"])
+        )
         if not before_metrics:
             logger.warning(f"No static analysis metrics found for {src}")
             continue
@@ -110,22 +128,33 @@ def get_before_vs_after_metrics(sa_results: List[AnalysisResult], llm_results: L
 
                 full_file_lines = apply_refactored_code(original_lines, llm_result)
 
-                with NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
+                with NamedTemporaryFile(
+                    mode="w", suffix=".py", delete=False, encoding="utf-8"
+                ) as tmp:
                     tmp.writelines(full_file_lines)
+                    tmp.flush()
                     tmp_path = tmp.name
 
                 try:
                     # Analyze on full file context (no smells yet to avoid false positives from isolated function)
                     splice_start = src["start_line"]
-                    splice_end = src["start_line"] + len(llm_result["after_code"].splitlines()) - 1
+                    splice_end = (
+                        src["start_line"]
+                        + len(llm_result["after_code"].splitlines())
+                        - 1
+                    )
 
                     all_analysis = analyze_file(tmp_path, analyze_smells=False)
                     after_analysis = [
-                        r for r in all_analysis
+                        r
+                        for r in all_analysis
                         if r["source"]["start_line"] >= splice_start
                         and r["source"]["end_line"] <= splice_end
                     ]
                     after_metrics = [r["metrics"] for r in after_analysis]
+                    logger.info(
+                        f"It reached here, so it has already has done MI and CC"
+                    )
 
                     # Now run smells analysis on the full file and extract per-function smells
                     pylint_messages = get_smells(tmp_path)
@@ -149,13 +178,17 @@ def get_before_vs_after_metrics(sa_results: List[AnalysisResult], llm_results: L
 
             except Exception as e:
                 logger.error(f"Error analyzing refactored code for {src}: {e}")
-                logger.error(f'Original code:\n{llm_result["before_code"]}\nRefactored code:\n{llm_result["after_code"]}')
+                logger.error(
+                    f'Original code:\n{llm_result["before_code"]}\nRefactored code:\n{llm_result["after_code"]}'
+                )
                 raise e
 
-        before_after_metrics.append(BeforeAfterMetrics(
-            **llm_result,
-            before_metrics=before_metrics,
-            after_metrics=after_metrics,
-        ))
+        before_after_metrics.append(
+            BeforeAfterMetrics(
+                **llm_result,
+                before_metrics=before_metrics,
+                after_metrics=after_metrics,
+            )
+        )
 
     return before_after_metrics
