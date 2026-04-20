@@ -48,7 +48,14 @@ def apply_refactored_code(
 
     after_lines = change["after_code"].splitlines(keepends=True)
     if after_lines:
-        after_indent = len(after_lines[0]) - len(after_lines[0].lstrip())
+        # Calculate the minimum indentation from all non-empty lines
+        # This handles cases where the first line might have different indentation
+        # change was done here. problem with indents
+        non_empty_indents = [
+            len(line) - len(line.lstrip()) for line in after_lines if line.strip()
+        ]
+        after_indent = min(non_empty_indents) if non_empty_indents else 0
+
         reindented = []
         for line in after_lines:
             if line.strip():
