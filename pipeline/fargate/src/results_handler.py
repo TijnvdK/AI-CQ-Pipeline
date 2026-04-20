@@ -48,11 +48,13 @@ def apply_refactored_code(
 
     after_lines = change["after_code"].splitlines(keepends=True)
     if after_lines:
-        # Calculate the minimum indentation from all non-empty lines
-        # This handles cases where the first line might have different indentation
-        # change was done here. problem with indents
+        # Calculate the minimum indentation from all non-empty, non-decorator lines.
+        # Skip decorators (lines starting with @) since they can be misaligned in LLM output.
+        # Use the function/class definition line to determine the base indentation level.
         non_empty_indents = [
-            len(line) - len(line.lstrip()) for line in after_lines if line.strip()
+            len(line) - len(line.lstrip())
+            for line in after_lines
+            if line.strip() and not line.lstrip().startswith("@")
         ]
         after_indent = min(non_empty_indents) if non_empty_indents else 0
 
