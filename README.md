@@ -35,7 +35,9 @@ cd AI-CQ-Pipeline
 ```
 
 ### 2. Set up the GitHub Actions Workflows
+To set up you can do it manual: copy the workflow files from `pipeline/workflows/` into the `.github/workflows/` directory of the repository you want to analyze.
 
+Or with a command:
 ```bash
 cp pipeline/workflows/*.yml [PATH-TO-YOUR-PROJECT]/.github/workflows/
 ```
